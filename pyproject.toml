@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "training-reports"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "pyarrow>=14.0",   # serialización Parquet (capa RAW)
+    "duckdb>=0.10",    # validación de negocio pre-subida (sanity.py)
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

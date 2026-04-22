@@ -1,0 +1,757 @@
+quiero hacer consultas a la base de datos de moodle, para sacar nombre, email del usuario y cuenta/login, también quiero sacar la fecha de alta en la plataforma, y el día del último acceso, la base de datos es postgres, y quiero solo el último acceso a la plataforma. uiero añadir una columna que se el partner y este es el la utlima parte del login: en este ejemplo pperez-pichincha, el partner es pichincha. esta regla se aplica a todos aquellos que no tengan en su email "stratio", para los de stratio pondremos partner stratio. Cuidado que el login puede contener varios guiones, pero siempre el último contiene el partner.
+puedes añadirle a que cohortes pertenece cada usuario, y la fecha de alta en la cohorte
+todo esto me gustaría que estuviera agrupdado por partner y mes el numero de apuntados a cada cohorte
+el orden que sea por parter y fecha descendente
+
+
+WITH user_partner AS (
+    SELECT
+        u.id AS userid,
+        u.username,
+        u.email,
+        CASE
+            WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+                THEN 'stratio'
+            ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+        END AS partner,
+        DATE_TRUNC('month', TO_TIMESTAMP(u.timecreated)) AS alta_mes
+    FROM mdl_user u
+    WHERE u.deleted = 0
+),
+
+-- Cohortes asignadas a usuarios
+user_cohort AS (
+    SELECT
+        cm.userid,
+        c.id   AS cohortid,
+        c.name AS cohort_name
+    FROM mdl_cohort_members cm
+    JOIN mdl_cohort c ON c.id = cm.cohortid
+),
+
+-- Cursos a los que da acceso cada cohorte (enrolamiento por cohort)
+cohort_course AS (
+    SELECT
+        e.courseid,
+        e.customint1 AS cohortid
+    FROM mdl_enrol e
+    WHERE e.enrol = 'cohort'
+),
+
+-- Sesiones de dedicación con curso
+dedicacion AS (
+    SELECT
+        s.userid,
+        r.course AS courseid,
+        DATE_TRUNC('month', TO_TIMESTAMP(s.login)) AS mes,
+        SUM(s.duration)/3600.0 AS horas
+    FROM mdl_attendanceregister_session s
+    JOIN mdl_attendanceregister r ON r.id = s.register
+    GROUP BY s.userid, r.course, DATE_TRUNC('month', TO_TIMESTAMP(s.login))
+),
+
+-- Resumen mensual cruzando usuario + cohort + curso
+resumen AS (
+    SELECT
+        up.partner,
+        uc.cohort_name,
+        d.mes,
+        COUNT(DISTINCT CASE WHEN up.alta_mes = d.mes THEN up.userid END) AS num_altas,
+        SUM(d.horas) AS horas_dedicadas,
+        COUNT(DISTINCT d.userid) AS usuarios_unicos
+    FROM dedicacion d
+    JOIN user_partner up ON up.userid = d.userid
+    JOIN cohort_course cc ON cc.courseid = d.courseid
+    JOIN user_cohort uc ON uc.userid = d.userid AND uc.cohortid = cc.cohortid
+    GROUP BY up.partner, uc.cohort_name, d.mes
+)
+
+SELECT
+    mes,
+    partner,
+    cohort_name,
+    num_altas,
+    horas_dedicadas,
+    usuarios_unicos,
+    SUM(num_altas)       OVER (PARTITION BY partner, cohort_name ORDER BY mes) AS acumulado_altas,
+    SUM(horas_dedicadas) OVER (PARTITION BY partner, cohort_name ORDER BY mes) AS acumulado_horas,
+    SUM(usuarios_unicos) OVER (PARTITION BY partner, cohort_name ORDER BY mes) AS acumulado_usuarios
+FROM resumen
+ORDER BY partner, cohort_name, mes;
+
+
+
+SELECT 
+    u.id,
+    u.username AS login,
+    (u.firstname || ' ' || u.lastname) AS nombre_completo,
+    u.email,
+    TO_CHAR(TO_TIMESTAMP(u.timecreated), 'DD/MM/YYYY HH24:MI') AS fecha_alta,
+    TO_CHAR(TO_TIMESTAMP(u.lastaccess), 'DD/MM/YYYY HH24:MI') AS ultimo_acceso,
+    CASE 
+        WHEN u.email ILIKE '%stratio%' THEN 'stratio'
+        ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+    END AS partner,
+    c.name AS cohorte,
+    TO_CHAR(TO_TIMESTAMP(cm.timeadded), 'DD/MM/YYYY HH24:MI') AS fecha_alta_cohorte
+FROM mdl_user u
+LEFT JOIN mdl_cohort_members cm ON cm.userid = u.id
+LEFT JOIN mdl_cohort c ON c.id = cm.cohortid
+WHERE u.deleted = 0
+  AND u.suspended = 0
+  and split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1)) = 'accenture'
+  and c.name like '%14.6%'
+ORDER BY u.timecreated;
+
+
+SELECT 
+    CASE 
+        WHEN u.email ILIKE '%stratio%' THEN 'stratio'
+        ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+    END AS partner,
+    c.name AS cohorte,
+    TO_CHAR(date_trunc('month', TO_TIMESTAMP(cm.timeadded)), 'YYYY-MM') AS mes,
+    COUNT(*) AS num_apuntados
+FROM mdl_user u
+JOIN mdl_cohort_members cm ON cm.userid = u.id
+JOIN mdl_cohort c ON c.id = cm.cohortid
+WHERE u.deleted = 0
+  AND u.suspended = 0
+  AND c.visible = 1  -- Solo cohortes activas
+GROUP BY partner, c.name, date_trunc('month', TO_TIMESTAMP(cm.timeadded))
+ORDER BY partner, cohorte, mes;
+
+--- resumen
+SELECT 
+    CASE 
+        WHEN u.email ILIKE '%stratio%' THEN 'stratio'
+        ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+    END AS partner,
+    TO_CHAR(date_trunc('month', TO_TIMESTAMP(cm.timeadded)), 'YYYY-MM') AS mes,
+    CASE 
+        WHEN c.name ILIKE '%Certificación%' THEN 'Certificados'
+        ELSE 'Training'
+    END AS tipo,
+    COUNT(distinct u.email) AS num_apuntados
+FROM mdl_user u
+JOIN mdl_cohort_members cm ON cm.userid = u.id
+JOIN mdl_cohort c ON c.id = cm.cohortid
+WHERE u.deleted = 0
+  AND u.suspended = 0
+  AND c.visible = 1
+  and c.name like '%14.6%'
+  and (c.name like '%14.6%' or c.name like '%Operaciones%')
+GROUP BY partner, mes, tipo
+ORDER BY partner, mes, tipo;
+
+
+
+-- Activar extensión crosstab
+CREATE EXTENSION IF NOT EXISTS tablefunc;
+
+DO $$
+DECLARE
+    columnas TEXT;
+    sql TEXT;
+BEGIN
+    -- Generamos dinámicamente todas las columnas de la forma cohorte_mes
+    SELECT string_agg(DISTINCT 
+                      quote_ident(c.name || '_' || to_char(date_trunc('month', to_timestamp(cm.timeadded)), 'YYYY_MM')), 
+                      ', ')
+    INTO columnas
+    FROM mdl_cohort_members cm
+    JOIN mdl_cohort c ON c.id = cm.cohortid;
+
+    -- Construimos la query dinámica pivot
+    sql := format($f$
+        SELECT *
+        FROM crosstab(
+            $$
+            SELECT 
+                CASE 
+                    WHEN u.email ILIKE '%%stratio%%' THEN 'stratio'
+                    ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+                END AS partner,
+                c.name || '_' || TO_CHAR(date_trunc('month', TO_TIMESTAMP(cm.timeadded)), 'YYYY_MM') AS cohorte_mes,
+                COUNT(*) AS num_apuntados
+            FROM mdl_user u
+            JOIN mdl_cohort_members cm ON cm.userid = u.id
+            JOIN mdl_cohort c ON c.id = cm.cohortid
+            WHERE u.deleted = 0
+              AND u.suspended = 0
+            GROUP BY partner, c.name, date_trunc('month', TO_TIMESTAMP(cm.timeadded))
+            ORDER BY partner, cohorte_mes
+            $$,
+            $$
+            SELECT DISTINCT c.name || '_' || TO_CHAR(date_trunc('month', TO_TIMESTAMP(cm.timeadded)), 'YYYY_MM')
+            FROM mdl_cohort_members cm
+            JOIN mdl_cohort c ON c.id = cm.cohortid
+            ORDER BY 1
+            $$
+        ) AS pivot_table(partner TEXT, %s)
+    $f$, columnas);
+
+    -- Ejecutamos la query dinámica
+    EXECUTE sql;
+END
+$$;
+
+
+------------------------------------------------------------------
+-------------- INFORME DE ALBERTO --------------------------------
+------------------------------------------------------------------
+1️⃣ Total de altas por partner - OK
+
+SELECT
+    CASE
+        WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+            THEN 'stratio'
+        ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+    END AS partner,
+    COUNT(*) AS total_altas
+FROM mdl_user u
+WHERE u.deleted = 0
+GROUP BY partner
+ORDER BY partner ASC
+
+
+2️⃣ Total de altas por cohorte y partner - OK
+
+SELECT
+    CASE
+        WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+            THEN 'stratio'
+        ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+    END AS partner,
+    c.name AS cohort_name,
+    COUNT(*) AS total_altas
+FROM mdl_user u
+JOIN mdl_cohort_members cm ON cm.userid = u.id
+JOIN mdl_cohort c ON c.id = cm.cohortid
+WHERE u.deleted = 0
+GROUP BY partner, c.name
+ORDER BY partner, c.name;
+
+3️⃣ Total de altas por mes y partner
+
+SELECT
+    TO_CHAR(DATE_TRUNC('month', TO_TIMESTAMP(u.timecreated)), 'YYYY-MM') AS mes,
+    CASE
+        WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+            THEN 'stratio'
+        ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+    END AS partner,
+    COUNT(*) AS total_altas
+FROM mdl_user u
+WHERE u.deleted = 0
+GROUP BY mes, partner
+ORDER BY mes, partner;
+
+--- consulta para filtrar por un partner
+WITH user_partner AS (
+    SELECT
+        TO_CHAR(DATE_TRUNC('month', TO_TIMESTAMP(u.timecreated)), 'YYYY-MM') AS mes,
+        CASE
+            WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+                THEN 'stratio'
+            ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+        END AS partner
+    FROM mdl_user u
+    WHERE u.deleted = 0
+)
+SELECT
+    mes,
+    partner,
+    COUNT(*) AS total_altas
+FROM user_partner
+--WHERE partner = 'pichincha'
+GROUP BY mes, partner
+ORDER BY mes;
+
+4️⃣ Total de horas dedicadas por mes y partner
+WITH user_partner AS (
+    SELECT
+        u.id AS userid,
+        CASE
+            WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+                THEN 'stratio'
+            ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+        END AS partner
+    FROM mdl_user u
+    WHERE u.deleted = 0
+),
+dedicacion AS (
+    SELECT
+        s.userid,
+        r.course AS courseid,
+        TO_CHAR(DATE_TRUNC('month', TO_TIMESTAMP(s.login)), 'YYYY-MM') AS mes,
+        ROUND(SUM(s.duration)/3600.0,0) AS horas
+    FROM mdl_attendanceregister_session s
+    JOIN mdl_attendanceregister r ON r.id = s.register
+    GROUP BY s.userid, r.course, TO_CHAR(DATE_TRUNC('month', TO_TIMESTAMP(s.login)), 'YYYY-MM')
+)
+SELECT
+    d.mes,
+    up.partner,
+    SUM(d.horas) AS total_horas
+FROM dedicacion d
+JOIN user_partner up ON up.userid = d.userid
+GROUP BY up.partner, d.mes
+ORDER BY up.partner, d.mes;
+
+
+
+5️⃣ Total de usuarios únicos activos por mes y partner
+
+WITH user_partner AS (
+    SELECT
+        u.id AS userid,
+        CASE
+            WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+                THEN 'stratio'
+            ELSE split_part(u.username, '-', array_length(string_to_array(u.username, '-'), 1))
+        END AS partner
+    FROM mdl_user u
+    WHERE u.deleted = 0
+),
+dedicacion AS (
+    SELECT
+        s.userid,
+        TO_CHAR(DATE_TRUNC('month', TO_TIMESTAMP(s.login)), 'YYYY-MM') AS mes
+    FROM mdl_attendanceregister_session s
+    JOIN mdl_attendanceregister r ON r.id = s.register
+    GROUP BY s.userid, TO_CHAR(DATE_TRUNC('month', TO_TIMESTAMP(s.login)), 'YYYY-MM')
+)
+SELECT
+    d.mes,
+    up.partner,
+    COUNT(DISTINCT d.userid) AS usuarios_unicos
+FROM dedicacion d
+JOIN user_partner up ON up.userid = d.userid
+GROUP BY up.partner, d.mes
+ORDER BY up.partner, d.mes;
+
+
+
+6 Total de usuarios únicos aprobados por mes y partner y cohort
+
+aprobados por partner cohort 
+
+WITH user_partner AS (
+  SELECT
+    u.id AS userid,
+    CASE
+      WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+        THEN 'stratio'
+      ELSE reverse(split_part(reverse(u.username), '-', 1))
+    END AS partner
+  FROM mdl_user u
+  WHERE u.deleted = 0
+),
+curso_aprobados AS (
+  SELECT
+    gg.userid,
+    gi.courseid,
+    gg.finalgrade
+  FROM mdl_grade_items gi
+  JOIN mdl_grade_grades gg ON gg.itemid = gi.id
+  WHERE gi.itemtype = 'course'
+    AND gg.finalgrade IS NOT NULL
+    AND gg.finalgrade >= 60   -- aprobado con regla fija
+)
+SELECT
+  up.partner,
+  coh.name AS cohort_name,
+  COUNT(DISTINCT ca.userid) AS total_aprobados
+FROM curso_aprobados ca
+JOIN mdl_course c ON c.id = ca.courseid
+JOIN user_partner up ON up.userid = ca.userid
+JOIN mdl_cohort_members cm ON cm.userid = ca.userid
+JOIN mdl_cohort coh ON coh.id = cm.cohortid
+JOIN mdl_enrol e 
+  ON e.enrol = 'cohort'
+ AND e.customint1 = coh.id
+ AND e.courseid = ca.courseid
+GROUP BY up.partner, coh.name
+ORDER BY up.partner, coh.name;
+
+
+
+consultas de alex
+-----------------
+WITH user_partner AS (
+  SELECT
+    u.id AS userid,
+    CASE
+      WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+        THEN 'stratio'
+      ELSE reverse(split_part(reverse(u.username), '-', 1))
+    END AS partner
+  FROM mdl_user u
+ -- WHERE u.deleted = 0
+),
+curso_aprobados AS (
+  SELECT
+    gg.userid,
+    gi.courseid,
+    gg.finalgrade
+  FROM mdl_grade_items gi
+  JOIN mdl_grade_grades gg ON gg.itemid = gi.id
+  WHERE gi.itemtype = 'course'
+    AND gg.finalgrade IS NOT NULL
+    AND gg.finalgrade >= 60   -- aprobado con regla fija
+)
+SELECT
+  up.partner,
+  CASE
+    WHEN coh.name ILIKE '%Governance%'      THEN 'Governance'
+    WHEN coh.name ILIKE '%Data Processing%' THEN 'Data Processing'
+    WHEN coh.name ILIKE '%Intelligence%'    THEN 'Intelligence'
+    WHEN coh.name ILIKE '%Operaciones%'     THEN 'Operaciones'
+    ELSE 'Otros'
+  END AS cohort_group,
+  COUNT(DISTINCT ca.userid) AS total_aprobados
+FROM curso_aprobados ca
+JOIN mdl_course c ON c.id = ca.courseid
+JOIN user_partner up ON up.userid = ca.userid
+JOIN mdl_cohort_members cm ON cm.userid = ca.userid
+JOIN mdl_cohort coh ON coh.id = cm.cohortid
+JOIN mdl_enrol e 
+  ON e.enrol = 'cohort'
+ AND e.customint1 = coh.id
+ AND e.courseid = ca.courseid
+WHERE coh.name ILIKE '%14.1%'
+   OR coh.name ILIKE '%14.6%'
+   OR coh.name ILIKE '%14.8%'
+GROUP BY up.partner, cohort_group
+ORDER BY up.partner, cohort_group;
+
+
+---------------- estudiantes unicos con certi por partner
+WITH user_partner AS (
+  SELECT
+    u.id AS userid,
+    u.username,
+    u.email,
+    CASE
+      WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+        THEN 'stratio'
+      ELSE reverse(split_part(reverse(u.username), '-', 1))
+    END AS partner
+  FROM mdl_user u
+  WHERE u.deleted = 0
+),
+curso_aprobados AS (
+  SELECT
+    gg.userid,
+    gi.courseid,
+    gg.finalgrade,
+    gg.timemodified
+  FROM mdl_grade_items gi
+  JOIN mdl_grade_grades gg ON gg.itemid = gi.id
+  WHERE gi.itemtype = 'course'
+    AND gg.finalgrade IS NOT NULL
+    AND gg.finalgrade >= 60   -- aprobado con regla fija
+)
+SELECT  
+  up.partner,
+COUNT(distinct up.userid)
+FROM curso_aprobados ca
+JOIN mdl_course c ON c.id = ca.courseid
+JOIN user_partner up ON up.userid = ca.userid
+JOIN mdl_cohort_members cm ON cm.userid = ca.userid
+JOIN mdl_cohort coh ON coh.id = cm.cohortid
+JOIN mdl_enrol e 
+  ON e.enrol = 'cohort'
+ AND e.customint1 = coh.id
+ AND e.courseid = ca.courseid
+WHERE (coh.name ILIKE '%14.1%' OR coh.name ILIKE '%14.6%' OR coh.name ILIKE '%14.8%')
+  AND (
+    coh.name ILIKE '%Governance%'
+    OR coh.name ILIKE '%Data Processing%'
+    OR coh.name ILIKE '%Intelligence%'
+    OR coh.name ILIKE '%Operaciones%'
+  )
+GROUP BY up.partner
+ORDER BY up.partner;
+
+
+------------- listeado de usuarios aprobados en cursos
+nº personas apuntadas
+nº certificadas
+
+telefonica
+solutia
+izertis 
+sopra
+
+
+WITH user_partner AS (
+  SELECT
+    u.id AS userid,
+    u.username,
+    u.email,
+    CASE
+      WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+        THEN 'stratio'
+      ELSE reverse(split_part(reverse(u.username), '-', 1))
+    END AS partner
+  FROM mdl_user u
+  WHERE u.deleted = 0
+),
+curso_aprobados AS (
+  SELECT
+    gg.userid,
+    gi.courseid,
+    gg.finalgrade,
+    gg.timemodified
+  FROM mdl_grade_items gi
+  JOIN mdl_grade_grades gg ON gg.itemid = gi.id
+  WHERE gi.itemtype = 'course'
+    AND gg.finalgrade IS NOT NULL
+    AND gg.finalgrade >= 60   -- aprobado con regla fija
+)
+SELECT
+  up.userid,
+  up.username,
+  up.email,
+  up.partner,
+  coh.name AS cohort_name,
+  CASE
+    WHEN coh.name ILIKE '%Governance%'      THEN 'Governance'
+    WHEN coh.name ILIKE '%Data Processing%' THEN 'Data Processing'
+    WHEN coh.name ILIKE '%Intelligence%'    THEN 'Intelligence'
+    WHEN coh.name ILIKE '%Operaciones%'     THEN 'Operaciones'
+    ELSE 'Otros'
+  END AS cohort_group,
+  ca.finalgrade,
+  TO_TIMESTAMP(ca.timemodified) AS fecha_aprobado
+FROM curso_aprobados ca
+JOIN mdl_course c ON c.id = ca.courseid
+JOIN user_partner up ON up.userid = ca.userid
+JOIN mdl_cohort_members cm ON cm.userid = ca.userid
+JOIN mdl_cohort coh ON coh.id = cm.cohortid
+JOIN mdl_enrol e 
+  ON e.enrol = 'cohort'
+ AND e.customint1 = coh.id
+ AND e.courseid = ca.courseid
+WHERE (coh.name ILIKE '%14.1%' OR coh.name ILIKE '%14.6%' OR coh.name ILIKE '%14.8%')
+  AND (
+    coh.name ILIKE '%Governance%'
+    OR coh.name ILIKE '%Data Processing%'
+    OR coh.name ILIKE '%Intelligence%'
+    OR coh.name ILIKE '%Operaciones%'
+  )
+ORDER BY up.partner, cohort_group, up.username;
+
+
+---- listado de usuarios y aprobado
+WITH user_partner AS (
+  SELECT
+    u.id AS userid,
+    u.username,
+    u.email,
+    CASE
+      WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%'
+        THEN 'stratio'
+      ELSE reverse(split_part(reverse(u.username), '-', 1))
+    END AS partner
+  FROM mdl_user u
+  WHERE u.deleted = 0
+),
+
+-- Traemos TODAS las notas de curso (si existen), no solo aprobados
+curso_notas AS (
+  SELECT
+    gg.userid,
+    gi.courseid,
+    gg.finalgrade,
+    gg.timemodified
+  FROM mdl_grade_items gi
+  JOIN mdl_grade_grades gg ON gg.itemid = gi.id
+  WHERE gi.itemtype = 'course'
+    AND gg.finalgrade IS NOT NULL
+),
+
+-- Base: todos los usuarios que pertenecen a cohortes objetivo y están enrolados al curso por cohort
+base_alumnos AS (
+  SELECT DISTINCT
+    up.userid,
+    up.username,
+    up.email,
+    up.partner,
+    coh.id   AS cohortid,
+    coh.name AS cohort_name,
+    e.courseid
+  FROM user_partner up
+  JOIN mdl_cohort_members cm ON cm.userid = up.userid
+  JOIN mdl_cohort coh ON coh.id = cm.cohortid
+  JOIN mdl_enrol e
+    ON e.enrol = 'cohort'
+   AND e.customint1 = coh.id
+  WHERE (coh.name ILIKE '%14.1%' OR coh.name ILIKE '%14.6%' OR coh.name ILIKE '%14.8%')
+    AND (
+      coh.name ILIKE '%Governance%'
+      OR coh.name ILIKE '%Data Processing%'
+      OR coh.name ILIKE '%Intelligence%'
+      OR coh.name ILIKE '%Operaciones%'
+    )
+)
+
+SELECT
+  b.userid,
+  b.username,
+  b.email,
+  b.partner,
+  b.cohort_name,
+  CASE
+    WHEN b.cohort_name ILIKE '%Governance%'      THEN 'Governance'
+    WHEN b.cohort_name ILIKE '%Data Processing%' THEN 'Data Processing'
+    WHEN b.cohort_name ILIKE '%Intelligence%'    THEN 'Intelligence'
+    WHEN b.cohort_name ILIKE '%Operaciones%'     THEN 'Operaciones'
+    ELSE 'Otros'
+  END AS cohort_group,
+
+  c.id   AS courseid,
+  c.fullname AS course_name,
+
+  cn.finalgrade,
+  TO_TIMESTAMP(cn.timemodified) AS fecha_nota,
+
+  CASE
+    WHEN cn.finalgrade IS NULL THEN 'Sin nota'
+    WHEN cn.finalgrade >= 60   THEN 'Aprobado'
+    ELSE 'No aprobado'
+  END AS estado_aprobacion
+
+FROM base_alumnos b
+JOIN mdl_course c ON c.id = b.courseid
+LEFT JOIN curso_notas cn
+  ON cn.userid = b.userid
+ AND cn.courseid = b.courseid
+
+-- Filtro opcional por email:
+-- Si tu herramienta soporta parámetros, usa :email_filter.
+-- Si no, reemplaza :email_filter por NULL o por un texto.
+WHERE ('aragon' IS NULL OR b.email ILIKE '%' || 'aragon' || '%')
+
+ORDER BY b.partner, cohort_group, b.username, c.fullname;
+
+
+------------------------------------- 
+------- LISTADO DE USUARIOS APUNTADOS A CURSOS Y LOS APROBADOS 
+---------------------------------------------------------------
+
+WITH user_partner AS (
+  SELECT
+    u.id AS userid,
+    u.timecreated AS user_created_unix,
+    CASE
+      WHEN u.email ILIKE '%stratio%' OR u.username ILIKE '%stratio%' THEN 'stratio'
+      ELSE reverse(split_part(reverse(u.username), '-', 1))
+    END AS partner
+  FROM mdl_user u
+  WHERE u.deleted = 0
+),
+filtered_cohorts AS (
+  SELECT
+    coh.id   AS cohortid,
+    coh.name AS cohort_name,
+    CASE
+      WHEN coh.name ILIKE '%Governance%'      THEN 'Governance'
+      WHEN coh.name ILIKE '%Data Processing%' THEN 'Data Processing'
+      WHEN coh.name ILIKE '%Intelligence%'    THEN 'Intelligence'
+      WHEN coh.name ILIKE '%Operaciones%'     THEN 'Operaciones'
+      ELSE 'Otros'
+    END AS cohort_group
+  FROM mdl_cohort coh
+  WHERE coh.name ILIKE '%14.1%'
+     OR coh.name ILIKE '%14.6%'
+     OR coh.name ILIKE '%14.8%'
+),
+cohort_courses AS (
+  SELECT
+    e.customint1 AS cohortid,
+    e.courseid,
+    e.id AS enrolid
+  FROM mdl_enrol e
+  JOIN filtered_cohorts fc ON fc.cohortid = e.customint1
+  WHERE e.enrol = 'cohort'
+),
+enrolled_users AS (
+  SELECT
+    cm.userid,
+    fc.cohortid,
+    fc.cohort_name,
+    fc.cohort_group
+  FROM mdl_cohort_members cm
+  JOIN filtered_cohorts fc ON fc.cohortid = cm.cohortid
+),
+user_course_enrolments AS (
+  SELECT DISTINCT
+    eu.userid,
+    eu.cohortid,
+    eu.cohort_name,
+    eu.cohort_group,
+    cc.courseid
+  FROM enrolled_users eu
+  JOIN cohort_courses cc ON cc.cohortid = eu.cohortid
+),
+curso_aprobados AS (
+  SELECT
+    gg.userid,
+    gi.courseid,
+    gg.finalgrade,
+    gg.timemodified AS approved_time_unix
+  FROM mdl_grade_items gi
+  JOIN mdl_grade_grades gg ON gg.itemid = gi.id
+  WHERE gi.itemtype = 'course'
+    AND gg.finalgrade IS NOT NULL
+    AND gg.finalgrade >= 60
+),
+matricula_curso AS (
+  SELECT
+    ue.userid,
+    e.courseid,
+    MIN(ue.timecreated) AS enrol_time_unix
+  FROM mdl_user_enrolments ue
+  JOIN mdl_enrol e ON e.id = ue.enrolid
+  GROUP BY ue.userid, e.courseid
+)
+SELECT
+  up.partner,
+  uce.userid,
+  uce.cohort_name,
+  uce.cohort_group,
+  uce.courseid,
+  c.fullname AS course_fullname,
+
+  CASE WHEN ca.userid IS NOT NULL THEN 1 ELSE 0 END AS aprobado,
+  ca.finalgrade,
+  CASE
+    WHEN ca.userid IS NOT NULL THEN to_timestamp(ca.approved_time_unix)
+    ELSE NULL
+  END AS fecha_aprobado,
+
+  to_timestamp(
+    GREATEST(
+      up.user_created_unix,
+      COALESCE(mc.enrol_time_unix, 0)
+    )
+  ) AS fecha_alta_o_matricula_mas_actual
+
+FROM user_course_enrolments uce
+JOIN user_partner up ON up.userid = uce.userid
+JOIN mdl_course c ON c.id = uce.courseid
+LEFT JOIN curso_aprobados ca
+  ON ca.userid = uce.userid
+ AND ca.courseid = uce.courseid
+LEFT JOIN matricula_curso mc
+  ON mc.userid = uce.userid
+ AND mc.courseid = uce.courseid
+ORDER BY
+  up.partner,
+  uce.cohort_group,
+  uce.cohort_name,
+  uce.userid,
+  c.fullname;
