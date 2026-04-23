@@ -2,18 +2,13 @@
 
 ## 0) Setup
 
-Siempre desde el directorio raíz del repo (aquí vive el `.env`):
-
 ```bash
 cd ~/datos/repos/training-reports
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
+pip install -e .[dev]        # instala dependencias (pyarrow, duckdb, openpyxl, mcp)
+cp .env.example .env         # rellenar con las credenciales reales
 ```
 
-> **Por qué el venv:** los scripts `training-batch`, `training-skill` y `training-mcp` se instalan en el `bin/` del entorno activo. Sin venv van a `~/.local/bin/` y funcionan desde cualquier directorio, pero entonces el `.env` solo se carga si ejecutas desde la raíz del repo. Con el venv siempre activo el comportamiento es predecible.
->
-> **Dónde busca el `.env`:** en el directorio de trabajo actual (`pwd`). Ejecuta siempre los comandos desde la raíz del repo o el `.env` no se encontrará.
+Todos los comandos se ejecutan con `python3 -m <modulo>` desde la raíz del repo — sin scripts en PATH, sin venv obligatorio. El `.env` se lee desde el directorio de trabajo actual, así que ejecuta siempre desde aquí.
 
 ## 1) Config mínima (.env)
 

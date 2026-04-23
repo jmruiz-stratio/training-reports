@@ -18,31 +18,33 @@ Automatización de informes de formación: extracción diaria desde Moodle, carg
 ## Setup
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+cd ~/datos/repos/training-reports
 pip install -e .[dev]
 cp .env.example .env   # rellenar MOODLE_URL, MOODLE_TOKEN, STRATIO_*
 ```
 
 ## Comandos principales
 
+Ejecutar siempre desde la raíz del repo (donde vive el `.env`):
+
 ```bash
 # Ingesta diaria (sin subir a HDFS)
-training-batch ingest daily --skip-upload
+python3 -m batch_agent ingest daily --skip-upload
 
 # Ingesta completa (extrae + valida + sube a HDFS)
-training-batch ingest daily
+python3 -m batch_agent ingest daily
 
 # Validar snapshot
-training-batch validate snapshot /tmp/moodle-reports-agent/2026-04-23
+python3 -m batch_agent validate snapshot /tmp/moodle-reports-agent/2026-04-23
 
 # Comparar dos días
-training-batch compare snapshots /tmp/.../2026-04-22 /tmp/.../2026-04-23
+python3 -m batch_agent compare snapshots /tmp/.../2026-04-22 /tmp/.../2026-04-23
 
 # Reporting local completo (Excel + CSV)
-training-skill reporting /tmp/moodle-reports-agent/2026-04-23
+python3 -m skill reporting /tmp/moodle-reports-agent/2026-04-23
 
 # Reporting solo para un partner
-training-skill reporting /tmp/moodle-reports-agent/2026-04-23 --partner pichincha
+python3 -m skill reporting /tmp/moodle-reports-agent/2026-04-23 --partner pichincha
 ```
 
 ## Documentación
