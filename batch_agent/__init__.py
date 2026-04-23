@@ -1,0 +1,1 @@
+"""Batch ingestion agent package."""
