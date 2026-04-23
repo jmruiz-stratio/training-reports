@@ -12,6 +12,8 @@ Este repositorio se ha refactorizado para separar responsabilidades y preparar u
 - `src/transform/`: SQL semántico y reporting (se mantiene).
 - `REFACTOR_NOTES.md`: supuestos, decisiones, riesgos y siguientes pasos.
 - `AGENTIC_ROADMAP.md`: hoja de ruta por capas (skill, MCP, plugin).
+- `RUNBOOK.md`: guía operativa paso a paso (dev/preprod/prod).
+- `CLAUDE.md`: estado técnico actual del proyecto y límites de cada capa.
 
 ## Comandos principales
 
