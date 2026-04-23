@@ -65,6 +65,13 @@ python -m skill kpis /tmp/moodle-reports-agent/2026-04-23
 python -m skill export /tmp/moodle-reports-agent/2026-04-23 /tmp/partner_kpis.csv
 ```
 
+### Reporting completo (Excel + CSV por tabla)
+```bash
+python -m skill reporting /tmp/moodle-reports-agent/2026-04-23 \
+  --output-excel /tmp/reports_local/informe_formacion.xlsx \
+  --output-csv-dir /tmp/reports_local/csv
+```
+
 ## 5) Uso del MCP server (v1 read-only)
 
 Lanzar:

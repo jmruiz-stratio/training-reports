@@ -1,6 +1,8 @@
 # Training Reports — Estado actual del proyecto (v4)
 
-Este documento sustituye la versión antigua y refleja la arquitectura vigente tras el refactor modular.
+Este documento resume la arquitectura vigente tras el refactor modular.
+
+> El detalle funcional histórico completo (consultas, reglas y contexto extenso) se conserva en `docs/CLAUDE_LEGACY_DETAILS.md` para no perder conocimiento.
 
 ## 1) Objetivo
 
@@ -48,6 +50,7 @@ src/agent/main.py   -> shim de compatibilidad para flujo legacy
 - Analítica local sobre snapshots:
   - KPIs por partner
   - export CSV base
+  - generación completa de reporting (Excel + CSV por tablas)
 
 ### mcp_server/
 - Capa read-only v1 de tools de alto nivel:
@@ -88,7 +91,7 @@ También existen scripts de paquete:
 1. Ejecutar ingesta diaria en modo seguro local (`--skip-upload`).
 2. Validar snapshot resultante (`validate snapshot`).
 3. Comparar contra snapshot anterior (`compare snapshots`).
-4. Ejecutar skill de KPIs/exportes si hace falta revisión de negocio.
+4. Ejecutar skill de KPIs/exportes (incluido reporting completo Excel+CSV) si hace falta revisión de negocio.
 5. Ejecutar con subida real sin `--skip-upload` solo cuando credenciales/entorno estén validados.
 
 ## 7) Estado de migración
