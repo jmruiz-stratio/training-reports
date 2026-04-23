@@ -1,54 +1,57 @@
-# Training Reports — Clean Product/Agent Architecture
+# Training Reports — Moodle → Stratio → Metabase
 
-Este repositorio se ha refactorizado para separar responsabilidades y preparar una evolución a producto + agentes.
+Automatización de informes de formación: extracción diaria desde Moodle, carga en HDFS y generación de dashboards en Metabase.
 
 ## Estructura
 
-- `moodle_plugin/`: plugin Moodle mínimo y seguro (solo extracción bulk estable).
-- `python_core/`: librería reutilizable con cliente Moodle, extracción RAW, validación y adaptadores de storage.
-- `batch_agent/`: CLI de ingesta diaria y validación/comparación de snapshots.
-- `skill/`: capa analítica (KPIs y exportes CSV/Excel).
-- `mcp_server/`: capa MCP read-only v1 con tools de negocio de alto nivel.
-- `src/transform/`: SQL semántico y reporting (se mantiene).
-- `REFACTOR_NOTES.md`: supuestos, decisiones, riesgos y siguientes pasos.
-- `AGENTIC_ROADMAP.md`: hoja de ruta por capas (skill, MCP, plugin).
-- `RUNBOOK.md`: guía operativa paso a paso (dev/preprod/prod).
-- `CLAUDE.md`: estado técnico actual del proyecto y límites de cada capa.
+| Directorio | Qué hace |
+|---|---|
+| `moodle_plugin/` | Plugin PHP `local_stratiorep` — 7 funciones de extracción bulk |
+| `python_core/` | Núcleo reutilizable: extracción, validación, storage HDFS, auth |
+| `batch_agent/` | CLI operativa: ingesta diaria, validación y comparación de snapshots |
+| `skill/` | CLI analítica: KPIs, exportes CSV/Excel por partner |
+| `mcp_server/` | MCP server (Claude Code) — 4 tools read-only de negocio |
+| `src/transform/` | SQL Spark para capas semántica y reporting (ejecución única en Stratio) |
+| `src/local_validate.py` | Validación local semántica + reporting en DuckDB → Excel |
+| `src/data/` | `partners_meta.csv` — metadatos de negocio por partner |
+
+## Setup
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e .[dev]
+cp .env.example .env   # rellenar MOODLE_URL, MOODLE_TOKEN, STRATIO_*
+```
 
 ## Comandos principales
 
 ```bash
-python -m batch_agent ingest daily --date 2026-04-22 --skip-upload
-python -m batch_agent validate snapshot /tmp/moodle-reports-agent/2026-04-22
-python -m batch_agent compare snapshots /tmp/snap-a /tmp/snap-b
-python -m skill kpis /tmp/moodle-reports-agent/2026-04-22
-python -m mcp_server.server
+# Ingesta diaria (sin subir a HDFS)
+training-batch ingest daily --skip-upload
+
+# Ingesta completa (extrae + valida + sube a HDFS)
+training-batch ingest daily
+
+# Validar snapshot
+training-batch validate snapshot /tmp/moodle-reports-agent/2026-04-23
+
+# Comparar dos días
+training-batch compare snapshots /tmp/.../2026-04-22 /tmp/.../2026-04-23
+
+# Reporting local completo (Excel + CSV)
+training-skill reporting /tmp/moodle-reports-agent/2026-04-23
+
+# Reporting solo para un partner
+training-skill reporting /tmp/moodle-reports-agent/2026-04-23 --partner pichincha
 ```
 
-## Migration guide
+## Documentación
 
-### Qué se queda en este repo
-- Plugin Moodle (`moodle_plugin/`) y SQL de transformaciones (`src/transform/`).
-- `python_core/` como núcleo compartido por batch, skill y MCP.
+- `CLAUDE.md` — contexto maestro completo (arquitectura, reglas de negocio, SQL, decisiones, roadmap)
+- `RUNBOOK.md` — guía operativa paso a paso (dev/preprod/prod)
 
-### Qué puede separarse a repos nuevos
-- `mcp_server/` (producto de consulta operativo independiente).
-- `skill/` (skill analítica portable, versionable y desplegable aparte).
+## Compatibilidad legacy
 
-### Candidatas a skill
-- Validación analítica de snapshots.
-- KPIs por partner/curso/cohorte.
-- Exportes CSV/Excel para auditoría.
-
-### Candidatas a MCP
-- Tools de consulta read-only: partners, KPIs, estado de formación, comparación de snapshots.
-- Orquestación de consultas de negocio (no wrappers crudos de tablas).
-
-### Qué debe seguir siendo plugin Moodle
-- Endpoints webservice bulk de lectura.
-- Declaración de capabilities/permisos y versionado de APIs.
-- Cero lógica de reporting o negocio en PHP.
-
-## Compatibilidad
-
-- Se mantiene `src/agent/main.py` como entrypoint de compatibilidad, redirigido al nuevo CLI de `batch_agent`.
+```bash
+python -m src.agent.main --date 2026-04-23 --skip-upload
+```
