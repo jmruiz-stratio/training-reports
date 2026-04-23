@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "training-reports": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/home/jmruiz/datos/repos/training-reports"
+    }
+  }
+}

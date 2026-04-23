@@ -1,31 +1,38 @@
-"""Minimal MCP-like dispatcher for high-level read-only tools (v1)."""
+"""MCP server — training reports read-only tools."""
 
-import json
+from mcp.server.fastmcp import FastMCP
 from . import tools
 
-TOOL_MAP = {
-    "list_training_partners": tools.list_training_partners,
-    "get_partner_kpis": tools.get_partner_kpis,
-    "validate_latest_snapshot": tools.validate_latest_snapshot,
-    "compare_snapshots": tools.compare_snapshots,
-}
+mcp = FastMCP("training-reports")
 
 
-def dispatch(tool: str, **kwargs):
-    if tool not in TOOL_MAP:
-        raise ValueError(f"Unknown tool: {tool}")
-    return TOOL_MAP[tool](**kwargs)
+@mcp.tool()
+def list_training_partners(workdir: str) -> list[str]:
+    """Lista todos los partners con usuarios en el snapshot indicado."""
+    return tools.list_training_partners(workdir)
 
 
-def main() -> int:
-    # stdin json lines: {"tool":"...", "args":{...}}
-    import sys
-    for line in sys.stdin:
-        req = json.loads(line)
-        result = dispatch(req["tool"], **req.get("args", {}))
-        print(json.dumps({"ok": True, "result": result}, ensure_ascii=False), flush=True)
-    return 0
+@mcp.tool()
+def get_partner_kpis(workdir: str, partner: str) -> dict:
+    """Devuelve KPIs (usuarios, certificaciones) de un partner concreto."""
+    return tools.get_partner_kpis(workdir, partner)
+
+
+@mcp.tool()
+def validate_latest_snapshot(workdir: str) -> dict:
+    """Valida un snapshot: row counts y KPIs básicos de negocio."""
+    return tools.validate_latest_snapshot(workdir)
+
+
+@mcp.tool()
+def compare_snapshots(base_dir: str, target_dir: str) -> list[dict]:
+    """Compara row counts entre dos snapshots y devuelve los deltas por dataset."""
+    return tools.compare_snapshots(base_dir, target_dir)
+
+
+def main() -> None:
+    mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

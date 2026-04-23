@@ -74,14 +74,20 @@ python -m skill reporting /tmp/moodle-reports-agent/2026-04-23 \
 
 ## 5) Uso del MCP server (v1 read-only)
 
-Lanzar:
+El servidor arranca automáticamente en Claude Code al abrir el proyecto (configurado en `.claude/settings.json`). No es necesario lanzarlo a mano.
+
+Flujo de uso:
 ```bash
-python -m mcp_server.server
+# 1. Genera un snapshot local
+python -m batch_agent ingest daily --skip-upload
+
+# 2. Abre el proyecto en Claude Code
+# 3. Pregunta directamente: "¿cuántos usuarios tiene pichincha?"
 ```
 
-Enviar JSON por stdin (una línea):
-```json
-{"tool":"list_training_partners","args":{"workdir":"/tmp/moodle-reports-agent/2026-04-23"}}
+Para lanzarlo manualmente (debugging):
+```bash
+python -m mcp_server.server
 ```
 
 ## 6) Compatibilidad legacy

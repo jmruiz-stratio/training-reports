@@ -6,4 +6,4 @@ Servidor MCP read-only v1 con tools de alto nivel:
 - `validate_latest_snapshot`
 - `compare_snapshots`
 
-La implementación actual expone un dispatcher minimalista preparado para adaptarse a SDK MCP estándar.
+Implementa el protocolo MCP estándar con FastMCP. Configurado en `.claude/settings.json` — arranca automáticamente en Claude Code al abrir el proyecto. Solo funciona con Claude Code (CLI/VSCode), no con claude.ai web. Lee Parquet locales — no descarga de HDFS.

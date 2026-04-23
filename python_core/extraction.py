@@ -91,5 +91,9 @@ def run_all(moodle_url: str, token: str, datasets: list[str]) -> dict[str, list[
             extractor._cache[ds] = rows
             log(f"{ds}: {len(rows)} filas", "✓")
         except Exception as e:
-            log(f"{ds}: omitido ({e})", "⚠")
+            if _is_access_denied(e):
+                log(f"{ds}: función sin acceso en el token, omitido", "⚠")
+                out[ds] = []
+            else:
+                raise RuntimeError(f"Error extrayendo {ds}: {e}") from e
     return out
