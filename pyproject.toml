@@ -1,22 +1,30 @@
 [build-system]
-requires = ["setuptools>=42"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "training-reports"
-version = "0.1.0"
+version = "0.2.0"
+description = "Moodle -> Data Fabric training reports with clean product/agent architecture"
 requires-python = ">=3.10"
 dependencies = [
-    "pyarrow>=14.0",   # serialización Parquet (capa RAW)
-    "duckdb>=0.10",    # validación de negocio pre-subida (sanity.py)
+    "pyarrow>=14.0",
+    "duckdb>=0.10",
+    "openpyxl>=3.1",
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
+[project.scripts]
+training-batch = "batch_agent.cli:main"
+training-skill = "skill.cli:main"
+training-mcp = "mcp_server.server:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["src*", "shared*", "python_core*", "batch_agent*", "skill*", "mcp_server*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

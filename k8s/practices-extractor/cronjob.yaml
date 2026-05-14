@@ -1,0 +1,69 @@
+---
+# ConfigMap con el script Python
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: practices-extractor-script
+  namespace: formacion-apps
+data:
+  script.py: |
+    # contenido generado — ver k8s/practices-extractor/script.py
+    # aplicar con: kubectl create configmap practices-extractor-script
+    #              --from-file=script.py=k8s/practices-extractor/script.py
+    #              -n formacion-apps --dry-run=client -o yaml | kubectl apply -f -
+---
+# CronJob: ejecuta el extractor cada día a las 06:00 UTC
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: practices-session-extractor
+  namespace: formacion-apps
+spec:
+  schedule: "0 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: practices-extractor
+          restartPolicy: OnFailure
+          containers:
+            - name: extractor
+              image: qa.int.stratio.com/stratio/opensearch-task:0.4.3
+              command: ["python3", "/scripts/script.py"]
+              env:
+                - name: KEOS_AUTH_NS
+                  value: "keos-auth"
+                - name: OS_HOST
+                  value: "opensearch-coordinator.formacion-datastores.svc.certspractices.int"
+                - name: OS_PORT
+                  value: "9200"
+                - name: OS_INDEX
+                  value: "practices_sessions"
+                - name: TLS_CERT
+                  value: "/certs/tls.crt"
+                - name: TLS_KEY
+                  value: "/certs/tls.key"
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                - name: tls
+                  mountPath: /certs
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+          volumes:
+            - name: script
+              configMap:
+                name: practices-extractor-script
+            - name: tls
+              secret:
+                secretName: opensearch-admin-tls

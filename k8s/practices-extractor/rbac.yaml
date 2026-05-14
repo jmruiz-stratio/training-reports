@@ -1,0 +1,36 @@
+---
+# ServiceAccount en formacion-apps
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: practices-extractor
+  namespace: formacion-apps
+---
+# Role en keos-auth: leer pods y sus logs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: practices-extractor-log-reader
+  namespace: keos-auth
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+# RoleBinding en keos-auth: vincula el SA de formacion-apps al Role anterior
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: practices-extractor-log-reader
+  namespace: keos-auth
+subjects:
+  - kind: ServiceAccount
+    name: practices-extractor
+    namespace: formacion-apps
+roleRef:
+  kind: Role
+  name: practices-extractor-log-reader
+  apiGroup: rbac.authorization.k8s.io
