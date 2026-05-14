@@ -15,8 +15,8 @@ def main() -> int:
 
     r = sp.add_parser("reporting")
     r.add_argument("workdir")
-    r.add_argument("--output-excel", default="/tmp/reports_local/informe_formacion.xlsx")
-    r.add_argument("--output-csv-dir", default="/tmp/reports_local/csv")
+    r.add_argument("--output-excel", default="reports/informe_formacion.xlsx")
+    r.add_argument("--output-csv-dir", default="reports/csv")
     r.add_argument("--partner", default=None)
 
     args = p.parse_args()

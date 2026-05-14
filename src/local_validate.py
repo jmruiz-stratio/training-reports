@@ -11,9 +11,11 @@ Uso:
 """
 
 import argparse
+import csv
 import os
 import sys
-from datetime import date
+from collections import defaultdict
+from datetime import date, datetime
 from pathlib import Path
 
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -442,10 +444,209 @@ def reporting_queries(semantic_tables: set[str], con) -> list[tuple[str, str, st
 
 # ── Excel ─────────────────────────────────────────────────────────────────────
 
-HEADER_FILL  = PatternFill("solid", fgColor="1F4E79")
-HEADER_FONT  = Font(bold=True, color="FFFFFF", size=10)
-ALT_FILL     = PatternFill("solid", fgColor="EBF3FB")
-NORMAL_FONT  = Font(size=10)
+HEADER_FILL      = PatternFill("solid", fgColor="1F4E79")
+HEADER_FONT      = Font(bold=True, color="FFFFFF", size=10)
+ALT_FILL         = PatternFill("solid", fgColor="EBF3FB")
+NORMAL_FONT      = Font(size=10)
+EXEC_TITLE_FILL  = PatternFill("solid", fgColor="1F4E79")
+EXEC_TITLE_FONT  = Font(bold=True, color="FFFFFF", size=14)
+EXEC_SECTION_FILL = PatternFill("solid", fgColor="2E75B6")
+EXEC_SECTION_FONT = Font(bold=True, color="FFFFFF", size=11)
+EXEC_KPI_LABEL   = Font(bold=True, size=11)
+EXEC_KPI_VALUE   = Font(bold=True, size=13, color="1F4E79")
+
+
+def _build_executive_summary_data(con: duckdb.DuckDBPyConnection, semantic_tables: set[str]) -> dict:
+    has_cert  = "f_certificaciones" in semantic_tables
+    has_dedic = "f_dedicacion"      in semantic_tables
+
+    def q(sql, default=None):
+        try:
+            return con.execute(sql).fetchone()[0]
+        except Exception:
+            return default
+
+    def qa(sql):
+        try:
+            return con.execute(sql).fetchall()
+        except Exception:
+            return []
+
+    data: dict = {
+        "fecha":            date.today().isoformat(),
+        "partners":         q("SELECT count(DISTINCT partner) FROM f_usuarios", 0),
+        "usuarios_totales": q("SELECT count(*) FROM f_usuarios", 0),
+        "usuarios_activos": q("SELECT count(*) FROM f_usuarios WHERE activo", 0),
+    }
+
+    if has_cert:
+        total = q("SELECT count(*) FROM f_certificaciones", 0)
+        aprobados = q("SELECT count(*) FROM f_certificaciones WHERE aprobado", 0)
+        data["total_certificaciones"] = total
+        data["aprobados"]             = aprobados
+        data["tasa_aprobacion"]       = round(100.0 * aprobados / total, 1) if total else 0.0
+
+    if has_dedic:
+        data["horas_totales"] = int(q("SELECT ROUND(SUM(horas), 0) FROM f_dedicacion", 0) or 0)
+
+    if has_cert and has_dedic:
+        cert_by_year  = {r[0]: r[1] for r in qa(
+            "SELECT strftime(fecha_nota, '%Y'), count(*) FILTER (WHERE aprobado) "
+            "FROM f_certificaciones GROUP BY 1 ORDER BY 1"
+        )}
+        horas_by_year = {r[0]: r[1] for r in qa(
+            "SELECT LEFT(mes, 4), ROUND(SUM(horas), 0) FROM f_dedicacion GROUP BY 1 ORDER BY 1"
+        )}
+        all_years = sorted(set(cert_by_year) | set(horas_by_year))
+        data["evolucion_anual"] = [
+            (y, cert_by_year.get(y, 0), int(horas_by_year.get(y, 0) or 0))
+            for y in all_years
+        ]
+
+    if has_cert:
+        data["top_partners"] = qa("""
+            SELECT partner,
+                   count(*) FILTER (WHERE aprobado) AS aprobados,
+                   count(*)                          AS total
+            FROM f_certificaciones
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 10
+        """)
+        data["por_categoria"] = qa("""
+            SELECT dc.categoria,
+                   count(DISTINCT fc.userid)                                AS alumnos,
+                   count(DISTINCT CASE WHEN fc.aprobado THEN fc.userid END) AS aprobados,
+                   ROUND(100.0 * count(DISTINCT CASE WHEN fc.aprobado THEN fc.userid END)
+                         / NULLIF(count(DISTINCT fc.userid), 0), 1)         AS tasa
+            FROM f_certificaciones fc
+            JOIN dim_cursos dc ON dc.course_id = fc.course_id
+            GROUP BY 1 ORDER BY aprobados DESC
+        """)
+
+    return data
+
+
+def _write_executive_summary_sheet(wb: openpyxl.Workbook, data: dict) -> None:
+    ws = wb.create_sheet(title="resumen_ejecutivo", index=0)
+    row = 1
+
+    # Título
+    ws.merge_cells(f"A{row}:E{row}")
+    ws[f"A{row}"] = "Informe de Formación — Resumen Ejecutivo"
+    ws[f"A{row}"].font      = EXEC_TITLE_FONT
+    ws[f"A{row}"].fill      = EXEC_TITLE_FILL
+    ws[f"A{row}"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 30
+    row += 1
+
+    ws[f"A{row}"] = f"Datos a: {data['fecha']}"
+    ws[f"A{row}"].font = Font(italic=True, size=10, color="888888")
+    row += 2
+
+    # ── KPIs globales ──────────────────────────────────────────────────────────
+    ws.merge_cells(f"A{row}:E{row}")
+    ws[f"A{row}"] = "KPIs Globales"
+    ws[f"A{row}"].font = EXEC_SECTION_FONT
+    ws[f"A{row}"].fill = EXEC_SECTION_FILL
+    row += 1
+
+    kpis = [
+        ("Partners",               data.get("partners",         "—")),
+        ("Usuarios totales",       data.get("usuarios_totales", "—")),
+        ("Usuarios activos",       data.get("usuarios_activos", "—")),
+    ]
+    if "aprobados" in data:
+        kpis.append(("Certificaciones aprobadas", data["aprobados"]))
+    if "tasa_aprobacion" in data:
+        kpis.append(("Tasa de aprobación",        f"{data['tasa_aprobacion']}%"))
+    if "horas_totales" in data:
+        kpis.append(("Horas de formación",        data["horas_totales"]))
+
+    for label, value in kpis:
+        ws[f"A{row}"] = label
+        ws[f"A{row}"].font = EXEC_KPI_LABEL
+        ws[f"B{row}"] = value
+        ws[f"B{row}"].font = EXEC_KPI_VALUE
+        row += 1
+    row += 1
+
+    # ── Evolución anual ────────────────────────────────────────────────────────
+    if data.get("evolucion_anual"):
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Evolución Anual"
+        ws[f"A{row}"].font = EXEC_SECTION_FONT
+        ws[f"A{row}"].fill = EXEC_SECTION_FILL
+        row += 1
+
+        for col_idx, h in enumerate(["Año", "Aprobados", "Horas"], 1):
+            c = ws.cell(row=row, column=col_idx, value=h)
+            c.font = HEADER_FONT; c.fill = HEADER_FILL
+            c.alignment = Alignment(horizontal="center")
+        row += 1
+
+        for i, (año, aprobados, horas) in enumerate(data["evolucion_anual"]):
+            ws.cell(row=row, column=1, value=año)
+            ws.cell(row=row, column=2, value=aprobados)
+            ws.cell(row=row, column=3, value=horas)
+            if i % 2 == 0:
+                for col in range(1, 4):
+                    ws.cell(row=row, column=col).fill = ALT_FILL
+            row += 1
+        row += 1
+
+    # ── Top 10 partners ────────────────────────────────────────────────────────
+    if data.get("top_partners"):
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Top 10 Partners por Certificaciones Aprobadas"
+        ws[f"A{row}"].font = EXEC_SECTION_FONT
+        ws[f"A{row}"].fill = EXEC_SECTION_FILL
+        row += 1
+
+        for col_idx, h in enumerate(["Partner", "Aprobados", "Presentados", "Tasa"], 1):
+            c = ws.cell(row=row, column=col_idx, value=h)
+            c.font = HEADER_FONT; c.fill = HEADER_FILL
+            c.alignment = Alignment(horizontal="center")
+        row += 1
+
+        for i, (partner, aprobados, total) in enumerate(data["top_partners"]):
+            tasa = f"{round(100.0 * aprobados / total, 1)}%" if total else "—"
+            ws.cell(row=row, column=1, value=partner)
+            ws.cell(row=row, column=2, value=aprobados)
+            ws.cell(row=row, column=3, value=total)
+            ws.cell(row=row, column=4, value=tasa)
+            if i % 2 == 0:
+                for col in range(1, 5):
+                    ws.cell(row=row, column=col).fill = ALT_FILL
+            row += 1
+        row += 1
+
+    # ── Por categoría ──────────────────────────────────────────────────────────
+    if data.get("por_categoria"):
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Resultados por Categoría"
+        ws[f"A{row}"].font = EXEC_SECTION_FONT
+        ws[f"A{row}"].fill = EXEC_SECTION_FILL
+        row += 1
+
+        for col_idx, h in enumerate(["Categoría", "Alumnos", "Aprobados", "Tasa"], 1):
+            c = ws.cell(row=row, column=col_idx, value=h)
+            c.font = HEADER_FONT; c.fill = HEADER_FILL
+            c.alignment = Alignment(horizontal="center")
+        row += 1
+
+        for i, (categoria, alumnos, aprobados, tasa) in enumerate(data["por_categoria"]):
+            ws.cell(row=row, column=1, value=categoria)
+            ws.cell(row=row, column=2, value=alumnos)
+            ws.cell(row=row, column=3, value=aprobados)
+            ws.cell(row=row, column=4, value=f"{tasa}%" if tasa else "—")
+            if i % 2 == 0:
+                for col in range(1, 5):
+                    ws.cell(row=row, column=col).fill = ALT_FILL
+            row += 1
+
+    # Ajuste ancho columnas
+    for col in ws.columns:
+        max_len = max((len(str(cell.value or "")) for cell in col), default=8)
+        ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 4, 50)
 
 
 def _strip_tz(val):
@@ -478,12 +679,69 @@ def _write_sheet(ws, rows: list[tuple], columns: list[str]) -> None:
         ws.column_dimensions[col_letter].width = min(max_len + 2, 40)
 
 
+def _load_practices_csv(csv_path: Path) -> list[dict]:
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _write_practices_sheets(wb: openpyxl.Workbook, rows: list[dict]) -> list[str]:
+    added = []
+
+    # ── Hoja 1: detalle de sesiones ─────────────────────────────────────────
+    cols_detalle = ["partner", "email", "user", "tenant",
+                    "fecha_inicio", "fecha_fin", "last_seen", "duracion_h"]
+    ws1 = wb.create_sheet(title="sesiones_practicas")
+    _write_sheet(ws1, [tuple(r[c] for c in cols_detalle) for r in rows], cols_detalle)
+    print(f"  {OK}  sesiones_practicas: {len(rows):,} filas")
+    added.append("sesiones_practicas")
+
+    # ── Hoja 2: resumen por partner ──────────────────────────────────────────
+    agg: dict[str, dict] = defaultdict(lambda: {
+        "sesiones": 0, "alumnos": set(), "horas": 0.0, "ultima_sesion": "",
+    })
+    for r in rows:
+        p = r["partner"]
+        agg[p]["sesiones"] += 1
+        agg[p]["alumnos"].add(r["email"])
+        try:
+            agg[p]["horas"] += float(r["duracion_h"] or 0)
+        except (ValueError, TypeError):
+            pass
+        if r["fecha_inicio"] > agg[p]["ultima_sesion"]:
+            agg[p]["ultima_sesion"] = r["fecha_inicio"]
+
+    cols_resumen = ["partner", "sesiones", "alumnos", "horas_totales", "ultima_sesion"]
+    resumen_rows = sorted(
+        [
+            (p,
+             v["sesiones"],
+             len(v["alumnos"]),
+             round(v["horas"], 1),
+             v["ultima_sesion"])
+            for p, v in agg.items()
+        ],
+        key=lambda x: x[1], reverse=True,
+    )
+    ws2 = wb.create_sheet(title="resumen_practicas")
+    _write_sheet(ws2, resumen_rows, cols_resumen)
+    print(f"  {OK}  resumen_practicas: {len(resumen_rows):,} partners")
+    added.append("resumen_practicas")
+
+    return added
+
+
 def export_excel(con: duckdb.DuckDBPyConnection,
                  semantic_tables: set[str],
-                 output_path: Path) -> list[str]:
+                 output_path: Path,
+                 practices_csv: Path | None = None) -> list[str]:
     wb = openpyxl.Workbook()
-    wb.remove(wb.active)   # eliminar hoja vacía por defecto
+    wb.remove(wb.active)
     generated = []
+
+    summary_data = _build_executive_summary_data(con, semantic_tables)
+    _write_executive_summary_sheet(wb, summary_data)
+    print(f"  {OK}  resumen_ejecutivo")
+    generated.append("resumen_ejecutivo")
 
     for sheet_name, table_name, sql in reporting_queries(semantic_tables, con):
         try:
@@ -497,6 +755,13 @@ def export_excel(con: duckdb.DuckDBPyConnection,
             generated.append(sheet_name)
         except Exception as e:
             print(f"  {WARN}  {sheet_name}: {e}")
+
+    if practices_csv and practices_csv.exists():
+        try:
+            practices_rows = _load_practices_csv(practices_csv)
+            generated.extend(_write_practices_sheets(wb, practices_rows))
+        except Exception as e:
+            print(f"  {WARN}  sesiones_practicas: {e}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -550,6 +815,8 @@ def main():
     parser.add_argument("--workdir", help="Directorio con los Parquet (por defecto: último snapshot)")
     parser.add_argument("--output", help="Ruta del Excel de salida (por defecto: informe_formacion[_partner].xlsx)")
     parser.add_argument("--partner", help="Filtrar informe a un único partner (ej: pichincha)")
+    parser.add_argument("--practices", default="reports/sesiones_practicas.csv",
+                        help="CSV de sesiones de prácticas (default: reports/sesiones_practicas.csv)")
     args = parser.parse_args()
 
     workdir = Path(args.workdir) if args.workdir else latest_workdir()
@@ -587,8 +854,15 @@ def main():
 
     print(f"  {OK}  {len(semantic_tables)} tablas semánticas listas\n")
 
+    practices_csv = Path(args.practices)
+    if practices_csv.exists():
+        print(f"  {INFO}  Sesiones de prácticas: {practices_csv}")
+    else:
+        print(f"  {WARN}  Sin datos de prácticas ({practices_csv} no existe)")
+        practices_csv = None
+
     print(f"  {INFO}  Generando hojas Excel...")
-    sheets = export_excel(con, semantic_tables, output_path)
+    sheets = export_excel(con, semantic_tables, output_path, practices_csv)
 
     print_kpis(con)
     con.close()
