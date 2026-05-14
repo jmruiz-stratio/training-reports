@@ -209,6 +209,16 @@ def _partner_from_email(email):
     return DOMAIN_PARTNER.get(domain, domain.split(".")[0])
 
 
+def _default_fecha_fin(created: str, minutes: int = 30) -> str:
+    """Fecha_fin por defecto cuando no hay sign_out: created + N minutos."""
+    from datetime import timedelta
+    try:
+        dt = datetime.strptime(created, "%Y-%m-%d %H:%M:%S")
+        return (dt + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return created
+
+
 def _cert_from_path(path):
     path_lower = path.lower()
     for key, val in CERT_MAP:
@@ -237,10 +247,9 @@ def parse_logs(raw_logs):
             tenant_m  = re.search(r'\btenant:(\w+)', line)
             user_m    = re.search(r'\buser:(\S+)', line)
             created_m = re.search(r'\bcreated:(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
-            expires_m = re.search(r'\bexpires:(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
             groups_m  = re.search(r'\bgroups:\[([^\]]+)\]', line)
 
-            if not (email_m and tenant_m and created_m and expires_m):
+            if not (email_m and tenant_m and created_m):
                 continue
             tenant = tenant_m.group(1)
             if tenant not in STUDENT_TENANTS:
@@ -249,7 +258,6 @@ def parse_logs(raw_logs):
             email   = email_m.group(1)
             user    = user_m.group(1) if user_m else email.split("@")[0]
             created = created_m.group(1)
-            expires = expires_m.group(1)
             groups  = groups_m.group(1).split() if groups_m else []
             src_ip  = ip_m.group(1) if ip_m else None
 
@@ -260,7 +268,7 @@ def parse_logs(raw_logs):
                 "partner":      _partner_from_email(email),
                 "tenant":       tenant,
                 "fecha_inicio": created,
-                "fecha_fin":    expires,
+                "fecha_fin":    _default_fecha_fin(created),
                 "last_seen":    created,
                 "groups":       groups,
                 "_src_ip":      src_ip,
