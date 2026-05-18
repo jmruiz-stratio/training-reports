@@ -18,6 +18,8 @@ def main() -> int:
     r.add_argument("--output-excel", default="reports/informe_formacion.xlsx")
     r.add_argument("--output-csv-dir", default="reports/csv")
     r.add_argument("--partner", default=None)
+    r.add_argument("--practices", default="reports/sesiones_practicas.csv",
+                   help="CSV de sesiones de prácticas (se omite si no existe)")
 
     args = p.parse_args()
     if args.cmd == "kpis":
@@ -30,6 +32,7 @@ def main() -> int:
             output_excel=args.output_excel,
             output_csv_dir=args.output_csv_dir,
             partner=args.partner,
+            practices_csv=args.practices,
         )
         print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0

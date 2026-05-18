@@ -10,7 +10,7 @@ def test_export_reporting_package_smoke(monkeypatch, tmp_path):
     def fake_loader():
         return (
             lambda con, base: {"f_usuarios"},
-            lambda con, st, out: ["resumen_partner"],
+            lambda con, st, out, pcsv=None: ["resumen_partner"],
             lambda st, con: [("resumen_partner", "r_resumen_partner", "SELECT 1 AS n")],
         )
 

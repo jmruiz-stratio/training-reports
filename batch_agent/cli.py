@@ -15,8 +15,6 @@ def main() -> int:
     ingest_sub = ingest.add_subparsers(dest="scope", required=True)
     ingest_daily_cmd = ingest_sub.add_parser("daily", help="Run daily ingestion")
     ingest_daily_cmd.add_argument("--date", default=date.today().isoformat())
-    ingest_daily_cmd.add_argument("--skip-upload", action="store_true", help="Do not upload to HDFS")
-    ingest_daily_cmd.add_argument("--dry-run", action="store_true", help="Alias for --skip-upload")
 
     validate = sub.add_parser("validate", help="Validate snapshot")
     validate_sub = validate.add_subparsers(dest="scope", required=True)
@@ -32,10 +30,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.cmd == "ingest" and args.scope == "daily":
-        result = ingest_daily(
-            date.fromisoformat(args.date),
-            skip_upload=(args.skip_upload or args.dry_run),
-        )
+        result = ingest_daily(date.fromisoformat(args.date))
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0
 

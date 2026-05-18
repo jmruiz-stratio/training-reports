@@ -41,6 +41,7 @@ def export_reporting_package(
     output_excel: str,
     output_csv_dir: str,
     partner: str | None = None,
+    practices_csv: str | None = None,
 ) -> dict:
     build_semantic, export_excel, reporting_queries = _load_reporting_helpers()
 
@@ -59,7 +60,8 @@ def export_reporting_package(
                 con.execute(f"CREATE VIEW {t} AS SELECT * FROM {t}_all WHERE partner = '{p}'")
 
     output_excel_path = Path(output_excel)
-    sheets = export_excel(con, semantic_tables, output_excel_path)
+    pcsv = Path(practices_csv) if practices_csv else Path("reports/sesiones_practicas.csv")
+    sheets = export_excel(con, semantic_tables, output_excel_path, pcsv if pcsv.exists() else None)
 
     csv_dir = Path(output_csv_dir)
     csv_dir.mkdir(parents=True, exist_ok=True)
