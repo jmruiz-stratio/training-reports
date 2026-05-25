@@ -1,0 +1,64 @@
+# Reglas de negocio canónicas — training-reports
+# Fuente de verdad: CLAUDE.md §6. Modificar aquí actualiza automáticamente el sistema.
+
+# ── Partner ───────────────────────────────────────────────────────────────────
+partner:
+  stratio_patterns:
+    - "%stratio%"  # aplica sobre LOWER(email) y LOWER(username)
+  rule: |
+    CASE
+      WHEN LOWER(email)    LIKE '%stratio%'
+        OR LOWER(username) LIKE '%stratio%' THEN 'stratio'
+      ELSE reverse(string_split(reverse(username), '-')[1])
+    END
+  notes: "string_split es DuckDB (1-indexed); en Spark usar split()[0]"
+
+# ── Certificación ─────────────────────────────────────────────────────────────
+certification:
+  pass_threshold: 70         # finalgrade >= 70 → aprobado
+  course_name_patterns:
+    - "%certificaci%"
+    - "%certification%"
+  notes: "Aplica solo a cursos marcados como es_certificacion=TRUE"
+
+# ── Categorías de cohorte/curso ───────────────────────────────────────────────
+categories:
+  - name: Governance
+    pattern: "%governance%"
+  - name: Data Processing
+    pattern: "%data processing%"
+  - name: Intelligence
+    pattern: "%intelligence%"
+  - name: Operaciones
+    pattern: "%operaciones%"
+  - name: Otros
+    pattern: null   # catch-all
+
+# ── Versión ───────────────────────────────────────────────────────────────────
+version:
+  regex: "(1[34]\\.[0-9])"
+  notes: "regexp_extract(name, regex, 1); NULLIF resultado vacío"
+
+# ── Idioma ────────────────────────────────────────────────────────────────────
+language:
+  suffixes:
+    ES: " - ES"
+    EN: " - EN"
+    FR: " - FR"
+
+# ── Validación / umbrales de sanidad ─────────────────────────────────────────
+validation:
+  min_users: 100            # < 100 usuarios → sospechoso
+  min_partners: 1           # 0 partners → error de extracción
+  max_cert_ratio: 1.0       # certificaciones > usuarios activos → inconsistencia
+  expected_datasets:
+    - users
+    - courses
+    - cohorts
+    - cohort_members
+    - user_courses
+    - user_grades
+    - course_completions
+    - cohort_members_ext
+    - attendance_sessions
+    - enrol_cohort_course

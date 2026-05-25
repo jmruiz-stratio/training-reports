@@ -12,6 +12,7 @@ dependencies = [
     "duckdb>=0.10",
     "openpyxl>=3.1",
     "mcp>=1.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -19,7 +20,9 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 training-batch = "batch_agent.cli:main"
+training-ingest = "batch_agent.cli:main_ingest"
 training-skill = "skill.cli:main"
+training-report-internal = "skill.cli:main_compliance"
 training-mcp = "mcp_server.server:main"
 
 [tool.setuptools.packages.find]

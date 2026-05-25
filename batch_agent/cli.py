@@ -45,5 +45,19 @@ def main() -> int:
     return 1
 
 
+def main_ingest() -> int:
+    """Entrypoint dedicado: training-ingest [--date YYYY-MM-DD]"""
+    p = argparse.ArgumentParser(
+        prog="training-ingest",
+        description="Descarga el snapshot diario de Moodle y lo guarda en Parquet local",
+    )
+    p.add_argument("--date", default=date.today().isoformat(),
+                   help="Fecha del snapshot (default: hoy)")
+    args = p.parse_args()
+    result = ingest_daily(date.fromisoformat(args.date))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
